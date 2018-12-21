@@ -27,7 +27,7 @@ def parse_annotations(path, num_of_samples=-1, s=600, training=True):
 
 
 def get_images(path, annotations, preprocess_func, s=600):
-    images = {}
+    images = []
     for file_name in annotations.keys():
         img_path = path + '/' + file_name + '.jpg'
         img = tf.keras.preprocessing.image.load_img(img_path)
@@ -40,7 +40,7 @@ def get_images(path, annotations, preprocess_func, s=600):
         x = tf.keras.preprocessing.image.img_to_array(img)
         x = preprocess_func(x)
         x = np.expand_dims(x, axis=0)
-        images[file_name] = x
+        images.append((file_name, x))
     return images
 
 
