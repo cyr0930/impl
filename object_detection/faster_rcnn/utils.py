@@ -28,6 +28,7 @@ def parse_annotations(path, num_of_samples=-1, s=600, training=True):
 
 def get_images(path, annotations, preprocess_func, s=600):
     images = []
+    raw_images = {}
     for file_name in annotations.keys():
         img_path = path + '/' + file_name + '.jpg'
         img = tf.keras.preprocessing.image.load_img(img_path)
@@ -41,7 +42,8 @@ def get_images(path, annotations, preprocess_func, s=600):
         x = preprocess_func(x)
         x = np.expand_dims(x, axis=0)
         images.append((file_name, x))
-    return images
+        raw_images[file_name] = img
+    return images, raw_images
 
 
 def make_label(annotation, pred, anchors, true_threshold=0.7, false_threshold=0.3):
