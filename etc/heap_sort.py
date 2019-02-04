@@ -1,4 +1,4 @@
-def sift_down(l, idx, end):
+def siftdown(l, idx, end):
     c = 2 * idx + 1
     while c <= end:
         if c != end and l[c] < l[c + 1]:
@@ -11,17 +11,20 @@ def sift_down(l, idx, end):
 
 
 def heapify(l):
+    # heapify with siftdown takes O(n) time, while siftup takes O(n*log n)
     end = len(l) - 1
     for i in range(end // 2, -1, -1):
-        sift_down(l, i, end)
+        siftdown(l, i, end)
 
 
 def heap_sort(l):
+    # in-place heap sort, time O(n*log n), space O(1)
     heapify(l)
     for i in range(len(l)-1, 0, -1):
         l[0], l[i] = l[i], l[0]
-        sift_down(l, 0, i-1)
-    return l
+        siftdown(l, 0, i-1)
 
 
-print(heap_sort([4,2,5,1,6,6,2,3]))
+l = [4, 2, 5, 1, 6, 6, 2, 3]
+heap_sort(l)
+print(l)
