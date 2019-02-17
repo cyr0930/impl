@@ -12,9 +12,8 @@ def siftdown(l, idx, end):
 
 def heapify(l):
     # heapify with siftdown takes O(n) time, while siftup takes O(n*log n)
-    end = len(l) - 1
-    for i in range(end // 2, -1, -1):
-        siftdown(l, i, end)
+    for i in range((len(l)-2) // 2, -1, -1):
+        siftdown(l, i, len(l)-1)
 
 
 def heap_sort(l):
@@ -25,6 +24,9 @@ def heap_sort(l):
         siftdown(l, 0, i-1)
 
 
+l = [4, 2, 5, 1, 6, 6, 2]
+heap_sort(l)
+print(l)
 l = [4, 2, 5, 1, 6, 6, 2, 3]
 heap_sort(l)
 print(l)
