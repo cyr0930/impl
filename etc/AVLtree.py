@@ -53,6 +53,11 @@ class AVLtree:
                     if lr.left is not None:
                         lr.left.parent = left
                     lr.parent, lr.right, lr.left = parent, self, left
+                    if parent is not None:
+                        if parent.left == self:
+                            parent.left = lr
+                        else:
+                            parent.right = lr
                     lr.height, self.height, left.height = lr.height + 1, self.height - 2, left.height - 1
                     return lr
                 else:
@@ -60,6 +65,11 @@ class AVLtree:
                     if left.right is not None:
                         left.right.parent = self
                     left.parent, left.right = parent, self
+                    if parent is not None:
+                        if parent.left == self:
+                            parent.left = left
+                        else:
+                            parent.right = left
                     self.height = max(heights[1], l_heights[2]) + 1
                     left.height = max(self.height, l_heights[1]) + 1
                     return left
@@ -75,6 +85,11 @@ class AVLtree:
                     if rl.right is not None:
                         rl.right.parent = right
                     rl.parent, rl.left, rl.right = parent, self, right
+                    if parent is not None:
+                        if parent.left == self:
+                            parent.left = rl
+                        else:
+                            parent.right = rl
                     rl.height, self.height, right.height = rl.height+1, self.height-2, right.height-1
                     return rl
                 else:
@@ -82,6 +97,11 @@ class AVLtree:
                     if right.left is not None:
                         right.left.parent = self
                     right.parent, right.left = parent, self
+                    if parent is not None:
+                        if parent.left == self:
+                            parent.left = right
+                        else:
+                            parent.right = right
                     self.height = max(heights[1], r_heights[1]) + 1
                     right.height = max(self.height, r_heights[2]) + 1
                     return right
@@ -96,7 +116,10 @@ class AVLtree:
                     if self.right is None:
                         self.height += 1
                 else:
-                    self.height = self.left.insert(val)[0] + 1
+                    t = self.left.insert(val)
+                    if t is None:
+                        return
+                    self.height = t[0] + 1
             else:
                 if self.right is None:
                     self.right = AVLtree.TreeNode(val)
@@ -104,7 +127,10 @@ class AVLtree:
                     if self.left is None:
                         self.height += 1
                 else:
-                    self.height = self.right.insert(val)[0] + 1
+                    t = self.right.insert(val)
+                    if t is None:
+                        return
+                    self.height = t[0] + 1
             root = self._balancing()
             return self.height, root
 
