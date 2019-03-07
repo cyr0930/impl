@@ -89,7 +89,7 @@ def bridge_edges(G, root):
     return bridges
 
 
-if __name__ == '__main__':
+def main():
     G = {'a': {'c': 1, 'b': 1},
          'b': {'a': 1, 'd': 1},
          'c': {'a': 1, 'd': 1},
@@ -98,3 +98,7 @@ if __name__ == '__main__':
          'f': {'e': 1, 'g': 1},
          'g': {'e': 1, 'f': 1}}
     assert bridge_edges(G, 'a') == {('d', 'e')}
+
+
+if __name__ == '__main__':
+    main()

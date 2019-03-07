@@ -1,7 +1,9 @@
 import random
 
 
-def _quick_sort(l, l_b, u_b):
+def quick_sort(l, l_b=0, u_b=None):
+    if u_b is None:
+        u_b = len(l) - 1
     if l_b >= u_b:
         return
     pivot = random.randint(l_b, u_b)
@@ -18,14 +20,15 @@ def _quick_sort(l, l_b, u_b):
         l[start], l[end] = l[end], l[start]
         start, end = start + 1, end - 1
     l[l_b], l[end] = l[end], l[l_b]
-    _quick_sort(l, l_b, end - 1)
-    _quick_sort(l, end + 1, u_b)
+    quick_sort(l, l_b, end - 1)
+    quick_sort(l, end + 1, u_b)
 
 
-def quick_sort(l):
-    _quick_sort(l, 0, len(l) - 1)
+def main():
+    l = [4, 2, 5, 1, 6, 6, 2, 3]
+    quick_sort(l)
+    print(l)
 
 
-l = [4, 2, 5, 1, 6, 6, 2, 3]
-quick_sort(l)
-print(l)
+if __name__ == '__main__':
+    main()

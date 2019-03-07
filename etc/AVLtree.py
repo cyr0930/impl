@@ -37,7 +37,7 @@ class AVLtree:
             self.parent = None
             self.height = 1
 
-        def _balancing(self):
+        def balancing(self):
             heights = self.get_height(False)
             if abs(heights[1] - heights[2]) != 2:
                 return self
@@ -131,7 +131,7 @@ class AVLtree:
                     if t is None:
                         return
                     self.height = t[0] + 1
-            root = self._balancing()
+            root = self.balancing()
             return self.height, root
 
         def find(self, val):
@@ -156,22 +156,27 @@ class AVLtree:
             return self.height, l_height, r_height
 
 
-tree = AVLtree(10)
-tree.insert(5)
-tree.insert(7)
-tree.insert(12)
-tree.insert(9)
-tree.insert(20)
-tree.insert(11)
-tree.insert(22)
-print(tree.get_height())
-minNode = tree.find_min()
-print(minNode.val)
-print(AVLtree.next_larger(minNode).val)
-node20 = tree.find(20)
-print(node20.val)
-print(AVLtree.next_larger(node20).val)
-print(tree.find(6))
-print(AVLtree.next_larger(tree.find(7)).val)
-print(AVLtree.next_larger(tree.find(9)).val)
-print(AVLtree.next_larger(tree.find(22)))
+def main():
+    tree = AVLtree(10)
+    tree.insert(5)
+    tree.insert(7)
+    tree.insert(12)
+    tree.insert(9)
+    tree.insert(20)
+    tree.insert(11)
+    tree.insert(22)
+    print(tree.get_height())
+    min_node = tree.find_min()
+    print(min_node.val)
+    print(AVLtree.next_larger(min_node).val)
+    node20 = tree.find(20)
+    print(node20.val)
+    print(AVLtree.next_larger(node20).val)
+    print(tree.find(6))
+    print(AVLtree.next_larger(tree.find(7)).val)
+    print(AVLtree.next_larger(tree.find(9)).val)
+    print(AVLtree.next_larger(tree.find(22)))
+
+
+if __name__ == '__main__':
+    main()

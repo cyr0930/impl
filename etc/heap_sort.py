@@ -24,9 +24,14 @@ def heap_sort(l):
         siftdown(l, 0, i-1)
 
 
-l = [4, 2, 5, 1, 6, 6, 2]
-heap_sort(l)
-print(l)
-l = [4, 2, 5, 1, 6, 6, 2, 3]
-heap_sort(l)
-print(l)
+def main():
+    l = [4, 2, 5, 1, 6, 6, 2]
+    heap_sort(l)
+    print(l)
+    l = [4, 2, 5, 1, 6, 6, 2, 3]
+    heap_sort(l)
+    print(l)
+
+
+if __name__ == '__main__':
+    main()

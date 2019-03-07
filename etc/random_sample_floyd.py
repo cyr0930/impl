@@ -10,5 +10,10 @@ def floyd_random_sample(m, n):
     return s
 
 
-ans = floyd_random_sample(28, 32)
-print('length:', len(ans), ', set:', ans)
+def main():
+    ans = floyd_random_sample(28, 32)
+    print('length:', len(ans), ', set:', ans)
+
+    
+if __name__ == '__main__':
+    main()
