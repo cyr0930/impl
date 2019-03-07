@@ -1,4 +1,4 @@
-from etc.bridge_finding_tarjan import bridge_edges
+import etc.bridge_finding_tarjan as bf
 
 
 def to_adj_list(graph):
@@ -15,7 +15,7 @@ def find_eulerian_tour(graph):
     start = next(iter(graph))
     ans = [start]
     while graph:
-        bridges = bridge_edges(graph, start)
+        bridges = bf.bridge_edges(graph, start)
         target = None
         for node in graph[start]:
             target = node
