@@ -19,6 +19,7 @@ is_submit = not output_dir
 identity_columns = ['male', 'female', 'homosexual_gay_or_lesbian', 'christian', 'jewish',
                     'muslim', 'black', 'white', 'psychiatric_or_mental_illness']
 
+
 def compute_subgroup_auc(df, subgroup, label, model_name):
     subgroup_examples = df[df[subgroup]]
     return metrics.roc_auc_score(subgroup_examples[label], subgroup_examples[model_name])
@@ -75,6 +76,21 @@ def add_start_end_token(X, start, end):
         x.append(end)
     return X
 
+class BahdanauAttention(layers.Layer):
+    def __init__(self, units):
+        super(BahdanauAttention, self).__init__()
+        self.W1 = layers.Dense(units)
+        self.W2 = layers.Dense(units)
+        self.V = layers.Dense(units)
+    def call(self, inputs, **kwargs):
+        values, query = inputs
+        hidden_with_time_axis = tf.expand_dims(query, 1)
+        score = self.V(tf.nn.tanh(self.W1(values) + self.W2(hidden_with_time_axis)))
+        attention_weights = tf.nn.softmax(score, axis=1)
+        context_vector = attention_weights * values
+        context_vector = tf.reduce_sum(context_vector, axis=1)
+        return context_vector
+
 
 nrows = None if is_submit else 100000
 data = pd.read_csv(input_dir + 'train.csv', nrows=nrows)
@@ -114,7 +130,8 @@ glove_matrix = construct_glove_matrix(tokenizer.word_index, embedding_dim, num_w
 input_layer = keras.Input(shape=(None,))
 output_layer = layers.Embedding(num_words, embedding_dim, embeddings_initializer=Constant(glove_matrix),
                                 trainable=False)(input_layer)
-output_layer = layers.GRU(128)(output_layer)
+output_layer = layers.GRU(128, return_sequences=True, return_state=True)(output_layer)
+output_layer = BahdanauAttention(128)(output_layer)
 output_layer = layers.Dense(32, activation='relu')(output_layer)
 output_layer = layers.Dense(1, activation='sigmoid')(output_layer)
 model = keras.Model(inputs=input_layer, outputs=output_layer)
