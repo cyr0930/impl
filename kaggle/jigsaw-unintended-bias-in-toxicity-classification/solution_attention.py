@@ -92,6 +92,7 @@ class BahdanauAttention(layers.Layer):
         return context_vector
 
 
+pd.set_option('mode.chained_assignment', None)
 nrows = None if is_submit else 100000
 data = pd.read_csv(input_dir + 'train.csv', nrows=nrows)
 data.sample(frac=1)
@@ -146,19 +147,28 @@ for i in range(epoch):
         Y_batch = Y_train[j:j+batch_size]
         X_batch = pad_sequences(X_batch, maxlen=max(map(lambda x: len(x), X_batch)))
         agg_loss += model.train_on_batch(X_batch, Y_batch.values)
-    if is_submit:
-        print('Loss: %.4f, Time: %.4f' % (agg_loss, time.time()-t))
-    else:
-        validation_data.loc[:, 'my_model'] = model.predict(X_val)
-        bias_metrics_df_val = compute_bias_metrics_for_model(validation_data, identity_columns, 'my_model', 'target_b')
-        # print(bias_metrics_df_val)
-        overall_auc_val = calculate_overall_auc(validation_data, 'my_model')
-        score_val = get_final_metric(bias_metrics_df_val, overall_auc_val)
-        print('Loss: %.4f, Time: %.4f' % (agg_loss, time.time() - t))
-        print('Score: %.4f, Overall AUC: %.4f (Validation)' % (score_val, overall_auc_val))
+    print('Loss: %.4f, Time: %.4f' % (agg_loss, time.time() - t))
+    if not is_submit:
+        t = time.time()
+        if nrows is not None:
+            X_train_eval = pad_sequences(X_train, maxlen=max(map(lambda x: len(x), X_train)))
+            train_data.loc[:, 'my_model'] = model.predict(X_train_eval)
+            bias_metrics_df = compute_bias_metrics_for_model(train_data, identity_columns, 'my_model', 'target_b')
+            # print(bias_metrics_df)
+            overall_auc = calculate_overall_auc(train_data, 'my_model')
+            score = get_final_metric(bias_metrics_df, overall_auc)
+            print('Score: %.4f, Overall AUC: %.4f (Training)' % (score, overall_auc))
+        if nrows is not None or (nrows is None and i == epoch-1):
+            validation_data.loc[:, 'my_model'] = model.predict(X_val)
+            bias_metrics_df_val = compute_bias_metrics_for_model(validation_data, identity_columns, 'my_model', 'target_b')
+            # print(bias_metrics_df_val)
+            overall_auc_val = calculate_overall_auc(validation_data, 'my_model')
+            score_val = get_final_metric(bias_metrics_df_val, overall_auc_val)
+            print('Score: %.4f, Overall AUC: %.4f (Validation) Time: %.4f' % (score_val, overall_auc_val, time.time()-t))
 
-pred = model.predict(X_test)
-with open(output_dir + 'submission.csv', 'w') as f:
-    f.write('id,prediction\n')
-    for i in range(len(pred)):
-        f.write(str(test_data['id'].loc[i]) + ',' + str(pred[i][0]) + '\n')
+if is_submit:
+    pred = model.predict(X_test)
+    with open(output_dir + 'submission.csv', 'w') as f:
+        f.write('id,prediction\n')
+        for i in range(len(pred)):
+            f.write(str(test_data['id'].loc[i]) + ',' + str(pred[i][0]) + '\n')
