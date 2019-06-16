@@ -11,9 +11,12 @@
   * Stacked GRU
     * Embedding(30000 x 16) - GRU(16) - GRU(4) - Dense(1)
     * Score: 0.90857, Epoch: 3
-  * **GRU + Glove**
+  * GRU + Glove
     * Embedding(Glove.6B.300d) - GRU(128) - Dense(32) - Dense(1)
-    * Score: **0.91684**, Epoch: 5
+    * Score: 0.91684, Epoch: 5
   * GRU + Glove + Attention
     * Embedding(Glove.6B.300d) - GRU(128) - Attention - Dense(32) - Dense(1)
-    * Score: 0.91460, Epoch: 5 
+    * Score: 0.91460, Epoch: 5
+  * **GRU + Glove + Dropout(0.5)**
+    * Embedding(Glove.6B.300d) - GRU(512) - Dense(128) - Dense(1)
+    * Score: **0.92088**, Epoch: 10

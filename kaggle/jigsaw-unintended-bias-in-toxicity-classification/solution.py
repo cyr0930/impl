@@ -95,7 +95,7 @@ validation_data.loc[:, 'target_b'] = validation_data['target'] >= 0.5
 
 vocab_size = 100000
 batch_size = 512
-epoch = 5
+epoch = 10
 tokenizer = Tokenizer(num_words=vocab_size, oov_token='<UNK>')
 tokenizer.fit_on_texts(X_train)
 
@@ -112,11 +112,13 @@ num_words += 3  # start token, end token, padding
 embedding_dim = 300
 glove_matrix = construct_glove_matrix(tokenizer.word_index, embedding_dim, num_words, vocab_size)
 
+dropout_rate = 0.5
 input_layer = keras.Input(shape=(None,))
 output_layer = layers.Embedding(num_words, embedding_dim, embeddings_initializer=Constant(glove_matrix),
                                 trainable=False)(input_layer)
-output_layer = layers.GRU(128)(output_layer)
-output_layer = layers.Dense(32, activation='relu')(output_layer)
+output_layer = layers.GRU(512, dropout=dropout_rate)(output_layer)
+output_layer = layers.Dense(128, activation='relu')(output_layer)
+output_layer = layers.Dropout(dropout_rate)(output_layer)
 output_layer = layers.Dense(1, activation='sigmoid')(output_layer)
 model = keras.Model(inputs=input_layer, outputs=output_layer)
 model.compile(optimizer=tf.train.AdamOptimizer(), loss='binary_crossentropy')
