@@ -35,7 +35,7 @@ def compute_bnsp_auc(df, subgroup, label, model_name):
 def compute_bias_metrics_for_model(dataset, subgroups, model, label_col):
     records = []
     for subgroup in subgroups:
-        record = {'subgroup': subgroup, 'subgroup_size': len(dataset[dataset[subgroup]]),
+        record = {'subgroup': subgroup[:4], 'size': len(dataset[dataset[subgroup]]),
                   'subgroup_auc': compute_subgroup_auc(dataset, subgroup, label_col, model),
                   'bpsn_auc': compute_bpsn_auc(dataset, subgroup, label_col, model),
                   'bnsp_auc': compute_bnsp_auc(dataset, subgroup, label_col, model)}
