@@ -22,5 +22,7 @@
             * Embedding(Glove.6B.300d) - GRU(512) - Dense(128) - Dense(1)
             * Score: 0.92088, Epoch: 10
     * Debiasing
-        * Extend background positive
-            * Score: 0.92372
+        * Extend background positive + Glove.840B.300d
+            * Score: 0.92502
+        * Custom loss function + Glove.840B.300d
+            * Score: 0.
