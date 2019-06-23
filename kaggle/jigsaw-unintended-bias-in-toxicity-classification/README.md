@@ -25,4 +25,6 @@
         * Extend background positive + Glove.840B.300d
             * Score: 0.92502
         * Custom loss function + Glove.840B.300d
-            * Score: 0.
+            * Score: 0.92761
+        * Custom loss function + Glove.840B.300d + Emsemble x 2
+            * Score: 0.0.93023

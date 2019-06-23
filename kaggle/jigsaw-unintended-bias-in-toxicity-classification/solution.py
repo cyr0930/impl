@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 import matplotlib.pyplot as plt
-from functools import reduce
 from sklearn import metrics
 from tensorflow import keras
 from tensorflow.python.keras import layers, backend
@@ -15,6 +14,7 @@ from tensorflow.python.keras.preprocessing.sequence import pad_sequences
 input_dir = '../../data/jigsaw-unintended-bias-in-toxicity-classification/'
 output_dir = '../../data/dummy/'
 glove_dir = '../../data/glove/'
+fasttext_dir = '../../data/fasttext/'
 is_submit = not output_dir
 
 identity_columns = ['male', 'female', 'homosexual_gay_or_lesbian', 'christian', 'jewish',
@@ -83,9 +83,9 @@ def get_final_metric(bias_df, overall_auc):
                              power_mean(bias_df['bnsp_auc'], -5)])
     return 0.25 * overall_auc + 0.75 * bias_score
 
-def construct_glove_matrix(word_idx, d, n, v):     # d: embedding_dim, n: num_words, v: vocab_size
+def construct_embedding_matrix(path, word_idx, d, n, v):     # d: embedding_dim, n: num_words, v: vocab_size
     embeddings_index = {}
-    with open(glove_dir + 'glove.840B.' + str(d) + 'd.txt', encoding='utf-8') as f:
+    with open(path, encoding='utf-8') as f:
         for line in f:
             values = line.split()
             word = values[0]
@@ -110,15 +110,15 @@ def b_cross_entropy(y_true, y_pred):
     return y_true * backend.log(y_pred) + (1-y_true) * backend.log(1-y_pred)
 def custom_loss(y_true, y_pred):
     epsilon = backend.epsilon()
+    n = len(identity_columns)
     y_pred = backend.clip(y_pred, epsilon, 1-epsilon)
     bg = backend.equal(backend.sum(y_true[:, 1:], axis=1), 0)
     pos = backend.greater_equal(y_true[:, 0], 0.5)
     neg = ~pos
     bp = bg & pos
     bn = bg & neg
-    n = len(identity_columns)
     p = 2
-    loss_base = b_cross_entropy(backend.expand_dims(y_true[:, 0], axis=1), y_pred)
+    loss_base = b_cross_entropy(y_true[:, :1], y_pred)
     loss_sub, loss_bpsn, loss_bnsp = 0, 0, 0
     for i in range(n):
         sub = backend.equal(y_true[:, i+1], 1)
@@ -138,7 +138,7 @@ def custom_loss(y_true, y_pred):
 
 
 pd.set_option('mode.chained_assignment', None)
-nrows = None if is_submit else 100000
+nrows = None if is_submit else 200000
 data = pd.read_csv(input_dir + 'train.csv', nrows=nrows)
 data = data.sample(frac=1)
 for col in identity_columns:
@@ -147,9 +147,9 @@ training_ratio = 1 if is_submit else 0.8
 ntrains = 2 ** math.floor(math.log2(data.shape[0] * training_ratio))
 train_data = data[:ntrains]
 
-for i in range(1):
-    buf = train_data[reduce(lambda x, y: x & y, [train_data[i] == 0 for i in identity_columns])]
-    train_data = train_data.append(buf[buf['target'] >= 0.5])
+# for i in range(1):
+#     buf = train_data[reduce(lambda x, y: x & y, [train_data[i] == 0 for i in identity_columns])]
+#     train_data = train_data.append(buf[buf['target'] >= 0.5])
 
 val_data = data[ntrains:]
 test_data = pd.read_csv(input_dir + 'test.csv')
@@ -160,9 +160,10 @@ val_data.loc[:, target_name] = val_data['target'] >= 0.5
 
 # tf.enable_eager_execution()
 vocab_size = 100000
-batch_size = 512
+batch_size = 1024
 epoch = 10
-tokenizer = Tokenizer(num_words=vocab_size, oov_token='<UNK>')
+CHARS_TO_REMOVE = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n“”’\'∞θ÷α•à−β∅³π‘₹´°£€\×™√²—'
+tokenizer = Tokenizer(num_words=vocab_size, oov_token='<UNK>', filters=CHARS_TO_REMOVE)
 tokenizer.fit_on_texts(train_data['comment_text'])
 
 num_words = min(vocab_size, len(tokenizer.word_index))
@@ -176,14 +177,18 @@ X_test = pad_sequences(test_data['comment_text'], maxlen=max(map(lambda x: len(x
 num_words += 3  # start token, end token, padding
 
 embedding_dim = 300
-glove_matrix = construct_glove_matrix(tokenizer.word_index, embedding_dim, num_words, vocab_size)
+glove_path = glove_dir + 'glove.840B.' + str(embedding_dim) + 'd.txt'
+glove_matrix = construct_embedding_matrix(glove_path, tokenizer.word_index, embedding_dim, num_words, vocab_size)
+fasttext_path = fasttext_dir + 'crawl-' + str(embedding_dim) + 'd-2M.vec'
+fasttext_matrix = construct_embedding_matrix(fasttext_path, tokenizer.word_index, embedding_dim, num_words, vocab_size)
+embedding_matrix = np.concatenate([glove_matrix, fasttext_matrix], axis=-1)
 
 dropout_rate = 0.5
 input_layer = keras.Input(shape=(None,))
-output_layer = layers.Embedding(num_words, embedding_dim, embeddings_initializer=Constant(glove_matrix),
+output_layer = layers.Embedding(num_words, embedding_dim*2, embeddings_initializer=Constant(embedding_matrix),
                                 trainable=False)(input_layer)
-output_layer = layers.GRU(512, dropout=dropout_rate)(output_layer)
-output_layer = layers.Dense(128, activation='relu')(output_layer)
+output_layer = layers.GRU(256, dropout=dropout_rate)(output_layer)
+output_layer = layers.Dense(256, activation='relu')(output_layer)
 output_layer = layers.Dropout(dropout_rate)(output_layer)
 output_layer = layers.Dense(1, activation='sigmoid')(output_layer)
 model = keras.Model(inputs=input_layer, outputs=output_layer)
@@ -210,14 +215,16 @@ for i in range(epoch):
         t = time.time()
         # if nrows is not None:
         #     X_train_eval = pad_sequences(X_train, maxlen=max(map(lambda x: len(x), X_train)))
-        #     train_data.loc[:, model_name] = model.predict(X_train_eval)
+        #     h = model.predict(X_train_eval)
+        #     train_data.loc[:, model_name] = h
         #     bias_metrics_df = compute_bias_metrics_for_model(train_data, identity_columns, model_name, target_name)
         #     overall_auc = calculate_overall_auc(train_data, model_name, target_name)
         #     score = get_final_metric(bias_metrics_df, overall_auc)
         #     print(bias_metrics_df)
         #     print('Score: %.4f, Overall AUC: %.4f (Training)' % (score, overall_auc))
         if nrows is not None or (nrows is None and i == epoch-1):
-            val_data.loc[:, model_name] = model.predict(X_val)
+            h = model.predict(X_val)
+            val_data.loc[:, model_name] = h
             bias_metrics_df_val = compute_bias_metrics_for_model(val_data, identity_columns, model_name, target_name)
             overall_auc_val = calculate_overall_auc(val_data, model_name, target_name)
             score_val = get_final_metric(bias_metrics_df_val, overall_auc_val)
