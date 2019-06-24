@@ -160,7 +160,7 @@ val_data.loc[:, target_name] = val_data['target'] >= 0.5
 
 # tf.enable_eager_execution()
 vocab_size = 100000
-batch_size = 1024
+batch_size = 512
 epoch = 10
 CHARS_TO_REMOVE = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n“”’\'∞θ÷α•à−β∅³π‘₹´°£€\×™√²—'
 tokenizer = Tokenizer(num_words=vocab_size, oov_token='<UNK>', filters=CHARS_TO_REMOVE)
@@ -183,17 +183,21 @@ fasttext_path = fasttext_dir + 'crawl-' + str(embedding_dim) + 'd-2M.vec'
 fasttext_matrix = construct_embedding_matrix(fasttext_path, tokenizer.word_index, embedding_dim, num_words, vocab_size)
 embedding_matrix = np.concatenate([glove_matrix, fasttext_matrix], axis=-1)
 
-num_of_models = 2
-dropout_rate = 0.5
+num_of_models = 1
+dropout_rate = 0.2
 preds = []
 
 for model_num in range(num_of_models):
     input_layer = keras.Input(shape=(None,))
-    output_layer = layers.Embedding(num_words, embedding_dim*2, embeddings_initializer=Constant(embedding_matrix),
-                                    trainable=False)(input_layer)
-    output_layer = layers.GRU(256, dropout=dropout_rate)(output_layer)
-    output_layer = layers.Dense(256, activation='relu')(output_layer)
-    output_layer = layers.Dropout(dropout_rate)(output_layer)
+    output_layer = layers.Embedding(num_words, embedding_dim*2, embeddings_initializer=Constant(embedding_matrix), trainable=False)(input_layer)
+    output_layer = layers.SpatialDropout1D(dropout_rate)(output_layer)
+    output_layer = layers.Bidirectional(layers.CuDNNLSTM(128, return_sequences=True))(output_layer)
+    output_layer = layers.Bidirectional(layers.CuDNNLSTM(128, return_sequences=True))(output_layer)
+    output_layer = layers.concatenate([layers.GlobalMaxPooling1D()(output_layer), layers.GlobalAveragePooling1D()(output_layer)])
+    output_layer = layers.add([output_layer, layers.Dense(512, activation='relu')(output_layer)])
+    output_layer = layers.Dropout(0.2)(output_layer)
+    output_layer = layers.add([output_layer, layers.Dense(512, activation='relu')(output_layer)])
+    output_layer = layers.Dropout(0.2)(output_layer)
     output_layer = layers.Dense(1, activation='sigmoid')(output_layer)
     model = keras.Model(inputs=input_layer, outputs=output_layer)
     model.compile(optimizer=tf.train.AdamOptimizer(), loss=custom_loss)
