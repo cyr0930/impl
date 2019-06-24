@@ -183,59 +183,67 @@ fasttext_path = fasttext_dir + 'crawl-' + str(embedding_dim) + 'd-2M.vec'
 fasttext_matrix = construct_embedding_matrix(fasttext_path, tokenizer.word_index, embedding_dim, num_words, vocab_size)
 embedding_matrix = np.concatenate([glove_matrix, fasttext_matrix], axis=-1)
 
+num_of_models = 2
 dropout_rate = 0.5
-input_layer = keras.Input(shape=(None,))
-output_layer = layers.Embedding(num_words, embedding_dim*2, embeddings_initializer=Constant(embedding_matrix),
-                                trainable=False)(input_layer)
-output_layer = layers.GRU(256, dropout=dropout_rate)(output_layer)
-output_layer = layers.Dense(256, activation='relu')(output_layer)
-output_layer = layers.Dropout(dropout_rate)(output_layer)
-output_layer = layers.Dense(1, activation='sigmoid')(output_layer)
-model = keras.Model(inputs=input_layer, outputs=output_layer)
-model.compile(optimizer=tf.train.AdamOptimizer(), loss=custom_loss)
+preds = []
 
-model_name = 'my_model'
-for i in range(epoch):
-    t = time.time()
-    agg_loss = 0
-    train_data = train_data.sample(frac=1)
-    X_train = train_data['comment_text']
-    Y_train = train_data['target']
-    Y_train_aux = np.stack([train_data[f].fillna(0).values for f in identity_columns], axis=1)
-    print('epoch: %d' % i)
-    for j in range(0, ntrains, batch_size):
-        X_batch = X_train[j:j+batch_size]
-        Y_batch = Y_train[j:j+batch_size]
-        Y_batch_aux = Y_train_aux[j:j + batch_size]
-        X_batch = pad_sequences(X_batch, maxlen=max(map(lambda x: len(x), X_batch)))
-        Y_concat = np.concatenate([np.expand_dims(Y_batch, axis=1), Y_batch_aux], axis=1)
-        agg_loss += model.train_on_batch(X_batch, Y_concat)
-    print('Loss: %.4f, Time: %.4f' % (agg_loss, time.time() - t))
-    if not is_submit:
+for model_num in range(num_of_models):
+    input_layer = keras.Input(shape=(None,))
+    output_layer = layers.Embedding(num_words, embedding_dim*2, embeddings_initializer=Constant(embedding_matrix),
+                                    trainable=False)(input_layer)
+    output_layer = layers.GRU(256, dropout=dropout_rate)(output_layer)
+    output_layer = layers.Dense(256, activation='relu')(output_layer)
+    output_layer = layers.Dropout(dropout_rate)(output_layer)
+    output_layer = layers.Dense(1, activation='sigmoid')(output_layer)
+    model = keras.Model(inputs=input_layer, outputs=output_layer)
+    model.compile(optimizer=tf.train.AdamOptimizer(), loss=custom_loss)
+
+    model_name = 'my_model'
+    for i in range(epoch):
         t = time.time()
-        # if nrows is not None:
-        #     X_train_eval = pad_sequences(X_train, maxlen=max(map(lambda x: len(x), X_train)))
-        #     h = model.predict(X_train_eval)
-        #     train_data.loc[:, model_name] = h
-        #     bias_metrics_df = compute_bias_metrics_for_model(train_data, identity_columns, model_name, target_name)
-        #     overall_auc = calculate_overall_auc(train_data, model_name, target_name)
-        #     score = get_final_metric(bias_metrics_df, overall_auc)
-        #     print(bias_metrics_df)
-        #     print('Score: %.4f, Overall AUC: %.4f (Training)' % (score, overall_auc))
-        if nrows is not None or (nrows is None and i == epoch-1):
-            h = model.predict(X_val)
-            val_data.loc[:, model_name] = h
-            bias_metrics_df_val = compute_bias_metrics_for_model(val_data, identity_columns, model_name, target_name)
-            overall_auc_val = calculate_overall_auc(val_data, model_name, target_name)
-            score_val = get_final_metric(bias_metrics_df_val, overall_auc_val)
-            print(bias_metrics_df_val)
-            print('Score: %.4f, Overall AUC: %.4f (Validation) Time: %.4f' % (score_val, overall_auc_val, time.time()-t))
-            if i == epoch - 1:
-                draw_roc_curve(val_data, model_name, target_name)
-
-if is_submit:
-    pred = model.predict(X_test)
+        agg_loss = 0
+        train_data = train_data.sample(frac=1)
+        X_train = train_data['comment_text']
+        Y_train = train_data['target']
+        Y_train_aux = np.stack([train_data[f].fillna(0).values for f in identity_columns], axis=1)
+        print('epoch: %d' % i)
+        for j in range(0, ntrains, batch_size):
+            X_batch = X_train[j:j+batch_size]
+            Y_batch = Y_train[j:j+batch_size]
+            Y_batch_aux = Y_train_aux[j:j + batch_size]
+            X_batch = pad_sequences(X_batch, maxlen=max(map(lambda x: len(x), X_batch)))
+            Y_concat = np.concatenate([np.expand_dims(Y_batch, axis=1), Y_batch_aux], axis=1)
+            agg_loss += model.train_on_batch(X_batch, Y_concat)
+        print('Loss: %.4f, Time: %.4f' % (agg_loss, time.time() - t))
+        if not is_submit:
+            t = time.time()
+            # if nrows is not None:
+            #     X_train_eval = pad_sequences(X_train, maxlen=max(map(lambda x: len(x), X_train)))
+            #     h = model.predict(X_train_eval)
+            #     train_data.loc[:, model_name] = h
+            #     bias_metrics_df = compute_bias_metrics_for_model(train_data, identity_columns, model_name, target_name)
+            #     overall_auc = calculate_overall_auc(train_data, model_name, target_name)
+            #     score = get_final_metric(bias_metrics_df, overall_auc)
+            #     print(bias_metrics_df)
+            #     print('Score: %.4f, Overall AUC: %.4f (Training)' % (score, overall_auc))
+            if nrows is not None or (nrows is None and i == epoch-1):
+                h = model.predict(X_val)
+                val_data.loc[:, model_name] = h
+                bias_metrics_df_val = compute_bias_metrics_for_model(val_data, identity_columns, model_name, target_name)
+                overall_auc_val = calculate_overall_auc(val_data, model_name, target_name)
+                score_val = get_final_metric(bias_metrics_df_val, overall_auc_val)
+                print(bias_metrics_df_val)
+                print('Score: %.4f, Overall AUC: %.4f (Validation) Time: %.4f' % (score_val, overall_auc_val, time.time()-t))
+                if i == epoch - 1:
+                    draw_roc_curve(val_data, model_name, target_name)
+    if is_submit:
+        preds.append(model.predict(X_test))
+if preds:
     with open(output_dir + 'submission.csv', 'w') as f:
         f.write('id,prediction\n')
-        for i in range(len(pred)):
-            f.write(str(test_data['id'].loc[i]) + ',' + str(pred[i][0]) + '\n')
+        for i in range(len(preds[0])):
+            pred = 0
+            for j in range(len(preds)):
+                pred += preds[j][i][0]
+            pred /= len(preds)
+            f.write(str(test_data['id'].loc[i]) + ',' + str(pred) + '\n')
