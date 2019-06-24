@@ -118,7 +118,7 @@ def custom_loss(y_true, y_pred):
     bp = bg & pos
     bn = bg & neg
     p = 2
-    loss_base = b_cross_entropy(y_true[:, :1], y_pred)
+    loss_base = -b_cross_entropy(y_true[:, :1], y_pred)
     loss_sub, loss_bpsn, loss_bnsp = 0, 0, 0
     for i in range(n):
         sub = backend.equal(y_true[:, i+1], 1)
@@ -127,13 +127,13 @@ def custom_loss(y_true, y_pred):
         sub = backend.cast(backend.expand_dims(sub, axis=1), 'float32')
         bpsn = backend.cast(backend.expand_dims(bpsn, axis=1), 'float32')
         bnsp = backend.cast(backend.expand_dims(bnsp, axis=1), 'float32')
-        loss_sub += backend.pow(-backend.sum(loss_base * sub) / (epsilon + backend.sum(sub)), p)
-        loss_bpsn += backend.pow(-backend.sum(loss_base * bpsn) / (epsilon + backend.sum(bpsn)), p)
-        loss_bnsp += backend.pow(-backend.sum(loss_base * bnsp) / (epsilon + backend.sum(bnsp)), p)
+        loss_sub += backend.pow(backend.sum(loss_base * sub) / (epsilon + backend.sum(sub)), p)
+        loss_bpsn += backend.pow(backend.sum(loss_base * bpsn) / (epsilon + backend.sum(bpsn)), p)
+        loss_bnsp += backend.pow(backend.sum(loss_base * bnsp) / (epsilon + backend.sum(bnsp)), p)
     loss_sub = backend.pow(loss_sub / n, 1/p)
     loss_bpsn = backend.pow(loss_bpsn / n, 1/p)
     loss_bnsp = backend.pow(loss_bnsp / n, 1/p)
-    loss_overall = -backend.mean(loss_base)
+    loss_overall = loss_base
     return 0.25 * loss_overall + 0.25 * (loss_sub + loss_bpsn + loss_bnsp)
 
 
@@ -146,10 +146,6 @@ for col in identity_columns:
 training_ratio = 1 if is_submit else 0.8
 ntrains = 2 ** math.floor(math.log2(data.shape[0] * training_ratio))
 train_data = data[:ntrains]
-
-# for i in range(1):
-#     buf = train_data[reduce(lambda x, y: x & y, [train_data[i] == 0 for i in identity_columns])]
-#     train_data = train_data.append(buf[buf['target'] >= 0.5])
 
 val_data = data[ntrains:]
 test_data = pd.read_csv(input_dir + 'test.csv')
@@ -185,6 +181,7 @@ embedding_matrix = np.concatenate([glove_matrix, fasttext_matrix], axis=-1)
 
 num_of_models = 1
 dropout_rate = 0.2
+id_weights = [0.84, 0.82, 2.67, 0.64, 1.31, 1.86, 2.71, 2.51, 1.12]
 preds = []
 
 for model_num in range(num_of_models):
@@ -195,9 +192,9 @@ for model_num in range(num_of_models):
     output_layer = layers.Bidirectional(layers.CuDNNLSTM(128, return_sequences=True))(output_layer)
     output_layer = layers.concatenate([layers.GlobalMaxPooling1D()(output_layer), layers.GlobalAveragePooling1D()(output_layer)])
     output_layer = layers.add([output_layer, layers.Dense(512, activation='relu')(output_layer)])
-    output_layer = layers.Dropout(0.2)(output_layer)
+    output_layer = layers.Dropout(dropout_rate)(output_layer)
     output_layer = layers.add([output_layer, layers.Dense(512, activation='relu')(output_layer)])
-    output_layer = layers.Dropout(0.2)(output_layer)
+    output_layer = layers.Dropout(dropout_rate)(output_layer)
     output_layer = layers.Dense(1, activation='sigmoid')(output_layer)
     model = keras.Model(inputs=input_layer, outputs=output_layer)
     model.compile(optimizer=tf.train.AdamOptimizer(), loss=custom_loss)
@@ -207,21 +204,28 @@ for model_num in range(num_of_models):
         t = time.time()
         agg_loss = 0
         train_data = train_data.sample(frac=1)
-        X_train = train_data['comment_text']
-        Y_train = train_data['target']
         Y_train_aux = np.stack([train_data[f].fillna(0).values for f in identity_columns], axis=1)
         print('epoch: %d' % i)
         for j in range(0, ntrains, batch_size):
-            X_batch = X_train[j:j+batch_size]
-            Y_batch = Y_train[j:j+batch_size]
+            batch_data = train_data[j:j + batch_size]
+            X_batch = batch_data['comment_text']
+            Y_batch = batch_data['target']
             Y_batch_aux = Y_train_aux[j:j + batch_size]
             X_batch = pad_sequences(X_batch, maxlen=max(map(lambda x: len(x), X_batch)))
             Y_concat = np.concatenate([np.expand_dims(Y_batch, axis=1), Y_batch_aux], axis=1)
-            agg_loss += model.train_on_batch(X_batch, Y_concat)
+
+            sample_weight = np.ones(len(batch_data), dtype=np.float32)
+            for k in range(len(identity_columns)):
+                identity = identity_columns[k]
+                mask = ~batch_data[target_name] & batch_data[identity]
+                sample_weight *= mask * id_weights[k] + ~mask
+
+            agg_loss += model.train_on_batch(X_batch, Y_concat, sample_weight=sample_weight.values)
         print('Loss: %.4f, Time: %.4f' % (agg_loss, time.time() - t))
         if not is_submit:
             t = time.time()
             # if nrows is not None:
+            #     X_train = train_data['comment_text']
             #     X_train_eval = pad_sequences(X_train, maxlen=max(map(lambda x: len(x), X_train)))
             #     h = model.predict(X_train_eval)
             #     train_data.loc[:, model_name] = h
