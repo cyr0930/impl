@@ -29,7 +29,8 @@ def draw_graph(fig, overall, l, idx):
     ax.legend(loc='lower right')
 def draw_roc_curve(df, model_name, label):
     l_sub, l_bpsn, l_bnsp = [], [], []
-    for subgroup in identity_columns:
+    for sub in identity_columns:
+        subgroup = sub + '_b'
         subgroup_examples = df[df[subgroup]]
         subgroup_negative_examples = df[df[subgroup] & ~df[label]]
         non_subgroup_positive_examples = df[~df[subgroup] & df[label]]
@@ -64,7 +65,8 @@ def compute_bnsp_auc(df, subgroup, label, model_name):
     return metrics.roc_auc_score(examples[label], examples[model_name])
 def compute_bias_metrics_for_model(dataset, subgroups, model, label_col):
     records = []
-    for subgroup in subgroups:
+    for sub in subgroups:
+        subgroup = sub + '_b'
         record = {'subgroup': subgroup[:4], 'size': len(dataset[dataset[subgroup]]),
                   'subgroup_auc': compute_subgroup_auc(dataset, subgroup, label_col, model),
                   'bpsn_auc': compute_bpsn_auc(dataset, subgroup, label_col, model),
@@ -133,29 +135,29 @@ def custom_loss(y_true, y_pred):
     loss_sub = backend.pow(loss_sub / n, 1/p)
     loss_bpsn = backend.pow(loss_bpsn / n, 1/p)
     loss_bnsp = backend.pow(loss_bnsp / n, 1/p)
-    loss_overall = loss_base
-    return 0.25 * loss_overall + 0.25 * (loss_sub + loss_bpsn + loss_bnsp)
+    return 0.25 * loss_base + 0.25 * (loss_sub + loss_bpsn + loss_bnsp)
 
 
 pd.set_option('mode.chained_assignment', None)
 nrows = None if is_submit else 200000
-data = pd.read_csv(input_dir + 'train.csv', nrows=nrows)
+nrows_test = None if is_submit else 100
+data = pd.read_csv(input_dir + 'train.csv')
 data = data.sample(frac=1)
+data = data[:nrows]
 for col in identity_columns:
-    data.loc[:, col] = data[col] >= 0.5
+    data.loc[:, col + '_b'] = data[col] >= 0.5
 training_ratio = 1 if is_submit else 0.8
 ntrains = 2 ** math.floor(math.log2(data.shape[0] * training_ratio))
 train_data = data[:ntrains]
-
 val_data = data[ntrains:]
-test_data = pd.read_csv(input_dir + 'test.csv')
+test_data = pd.read_csv(input_dir + 'test.csv', nrows=nrows_test)
 
 target_name = 'target_b'
 train_data.loc[:, target_name] = train_data['target'] >= 0.5
 val_data.loc[:, target_name] = val_data['target'] >= 0.5
 
 # tf.enable_eager_execution()
-vocab_size = 100000
+vocab_size = 20000
 batch_size = 512
 epoch = 10
 CHARS_TO_REMOVE = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n“”’\'∞θ÷α•à−β∅³π‘₹´°£€\×™√²—'
@@ -179,11 +181,12 @@ fasttext_path = fasttext_dir + 'crawl-' + str(embedding_dim) + 'd-2M.vec'
 fasttext_matrix = construct_embedding_matrix(fasttext_path, tokenizer.word_index, embedding_dim, num_words, vocab_size)
 embedding_matrix = np.concatenate([glove_matrix, fasttext_matrix], axis=-1)
 
-num_of_models = 1
+num_of_models = 2
 dropout_rate = 0.2
 id_weights = [0.84, 0.82, 2.67, 0.64, 1.31, 1.86, 2.71, 2.51, 1.12]
-preds = []
+icb = [s+'_b' for s in identity_columns]
 
+models = []
 for model_num in range(num_of_models):
     input_layer = keras.Input(shape=(None,))
     output_layer = layers.Embedding(num_words, embedding_dim*2, embeddings_initializer=Constant(embedding_matrix), trainable=False)(input_layer)
@@ -199,13 +202,20 @@ for model_num in range(num_of_models):
     model = keras.Model(inputs=input_layer, outputs=output_layer)
     model.compile(optimizer=tf.train.AdamOptimizer(), loss=custom_loss)
 
-    model_name = 'my_model'
-    for i in range(epoch):
+    models.append(model)
+
+weights = []
+preds = []
+preds_test = []
+for i in range(epoch):
+    for model_num in range(len(models)):
         t = time.time()
+        weights.append(2 ** i)
+        model = models[model_num]
         agg_loss = 0
         train_data = train_data.sample(frac=1)
-        Y_train_aux = np.stack([train_data[f].fillna(0).values for f in identity_columns], axis=1)
-        print('epoch: %d' % i)
+        Y_train_aux = np.stack([train_data[f].fillna(0).values for f in icb], axis=1)
+        print('epoch: %d' % i, 'with model %d' % model_num)
         for j in range(0, ntrains, batch_size):
             batch_data = train_data[j:j + batch_size]
             X_batch = batch_data['comment_text']
@@ -223,35 +233,22 @@ for model_num in range(num_of_models):
             agg_loss += model.train_on_batch(X_batch, Y_concat, sample_weight=sample_weight.values)
         print('Loss: %.4f, Time: %.4f' % (agg_loss, time.time() - t))
         if not is_submit:
-            t = time.time()
-            # if nrows is not None:
-            #     X_train = train_data['comment_text']
-            #     X_train_eval = pad_sequences(X_train, maxlen=max(map(lambda x: len(x), X_train)))
-            #     h = model.predict(X_train_eval)
-            #     train_data.loc[:, model_name] = h
-            #     bias_metrics_df = compute_bias_metrics_for_model(train_data, identity_columns, model_name, target_name)
-            #     overall_auc = calculate_overall_auc(train_data, model_name, target_name)
-            #     score = get_final_metric(bias_metrics_df, overall_auc)
-            #     print(bias_metrics_df)
-            #     print('Score: %.4f, Overall AUC: %.4f (Training)' % (score, overall_auc))
-            if nrows is not None or (nrows is None and i == epoch-1):
-                h = model.predict(X_val)
-                val_data.loc[:, model_name] = h
-                bias_metrics_df_val = compute_bias_metrics_for_model(val_data, identity_columns, model_name, target_name)
-                overall_auc_val = calculate_overall_auc(val_data, model_name, target_name)
-                score_val = get_final_metric(bias_metrics_df_val, overall_auc_val)
-                print(bias_metrics_df_val)
-                print('Score: %.4f, Overall AUC: %.4f (Validation) Time: %.4f' % (score_val, overall_auc_val, time.time()-t))
-                if i == epoch - 1:
-                    draw_roc_curve(val_data, model_name, target_name)
-    if is_submit:
-        preds.append(model.predict(X_test))
-if preds:
-    with open(output_dir + 'submission.csv', 'w') as f:
-        f.write('id,prediction\n')
-        for i in range(len(preds[0])):
-            pred = 0
-            for j in range(len(preds)):
-                pred += preds[j][i][0]
-            pred /= len(preds)
-            f.write(str(test_data['id'].loc[i]) + ',' + str(pred) + '\n')
+            if nrows is not None or (nrows is None and i == epoch - 1):
+                preds.append(model.predict(X_val))
+        preds_test.append(model.predict(X_test))
+    if preds:
+        pred = np.average(preds, weights=weights, axis=0)
+        model_name = 'my_model'
+        val_data.loc[:, model_name] = pred
+        bias_metrics_df_val = compute_bias_metrics_for_model(val_data, identity_columns, model_name, target_name)
+        overall_auc_val = calculate_overall_auc(val_data, model_name, target_name)
+        score_val = get_final_metric(bias_metrics_df_val, overall_auc_val)
+        print(bias_metrics_df_val)
+        print('Score: %.4f, Overall AUC: %.4f (Validation)' % (score_val, overall_auc_val))
+        if i == epoch - 1:
+            draw_roc_curve(val_data, model_name, target_name)
+with open(output_dir + 'submission.csv', 'w') as f:
+    f.write('id,prediction\n')
+    pred = np.average(preds_test, weights=weights, axis=0)
+    for i in range(len(pred)):
+        f.write(str(test_data['id'].loc[i]) + ',' + str(pred[i][0]) + '\n')
