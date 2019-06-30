@@ -5,30 +5,31 @@ import pandas as pd
 from PIL import Image
 from tensorflow.python.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.python.keras.applications.mobilenet_v2 import MobileNetV2, preprocess_input
-from tensorflow.python.keras import layers, models, optimizers, backend, callbacks
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import f1_score
+from tensorflow.python.keras import layers, models, optimizers, callbacks
+from sklearn.model_selection import KFold
 
 warnings.filterwarnings('ignore')
 
-def micro_f1(y_true, y_pred):
-    return f1_score(y_true, y_pred, average='micro')
-
 DATA_PATH = '../../data/2019-3rd-ml-month-with-kakr/'
+OUT_PATH = '../../data/2019-3rd-ml-month-with-kakr/'
 TRAIN_IMG_PATH = os.path.join(DATA_PATH, 'train')
 TEST_IMG_PATH = os.path.join(DATA_PATH, 'test')
 TRAIN_CROPPED_PATH = os.path.join(DATA_PATH, 'train_cropped')
 TEST_CROPPED_PATH = os.path.join(DATA_PATH, 'test_cropped')
 
-df_train = pd.read_csv(os.path.join(DATA_PATH, 'train.csv'))
+nrows = 128
+img_size = (299, 299)
+batch_size = 20
+epochs = 2
+train_ratio = 0.8
+
+df_train = pd.read_csv(os.path.join(DATA_PATH, 'train.csv'), nrows=nrows)
 df_test = pd.read_csv(os.path.join(DATA_PATH, 'test.csv'))
 df_class = pd.read_csv(os.path.join(DATA_PATH, 'class.csv'))
 
-img_size = (299, 299)
-batch_size = 20
-epochs = 1
-train_ratio = 0.8
-rand_seed = 42
+
+def get_steps(num_samples, batch_size):
+    return num_samples // batch_size + int(num_samples % batch_size > 0)
 
 
 # img_size에 맞추다 보니 가로세로 비율이 이상해지는데 이게 좋은가 여백을 두는게 좋은가?
@@ -53,20 +54,9 @@ if not os.path.isdir(TRAIN_CROPPED_PATH):
     os.makedirs(TEST_CROPPED_PATH)
     crop_boxing_img(df_test, TEST_IMG_PATH, TEST_CROPPED_PATH)
 
-
 df_train["class"] = df_train["class"].astype('str')
 df_train = df_train[['img_file', 'class']]
 df_test = df_test[['img_file']]
-
-its = np.arange(df_train.shape[0])
-train_idx, val_idx = train_test_split(its, train_size=train_ratio, random_state=rand_seed)
-
-X_train = df_train.iloc[train_idx, :].reset_index(drop=True)
-X_val = df_train.iloc[val_idx, :].reset_index(drop=True)
-
-nb_train_samples = len(X_train)
-nb_validation_samples = len(X_val)
-nb_test_samples = len(df_test)
 
 train_datagen = ImageDataGenerator(
     horizontal_flip=True, vertical_flip=False, zoom_range=0.1, rotation_range=20, fill_mode='nearest',
@@ -75,39 +65,45 @@ train_datagen = ImageDataGenerator(
 val_datagen = ImageDataGenerator(preprocessing_function=preprocess_input)
 test_datagen = ImageDataGenerator(preprocessing_function=preprocess_input)
 
-train_generator = train_datagen.flow_from_dataframe(
-    dataframe=X_train, directory=TRAIN_CROPPED_PATH, x_col='img_file', y_col='class', target_size=img_size,
-    color_mode='rgb', class_mode='categorical', batch_size=batch_size, seed=rand_seed
-)
-validation_generator = val_datagen.flow_from_dataframe(
-    dataframe=X_val, directory=TRAIN_CROPPED_PATH, x_col='img_file', y_col='class', target_size=img_size,
-    color_mode='rgb', class_mode='categorical', batch_size=batch_size, shuffle=False
-)
-test_generator = test_datagen.flow_from_dataframe(
-    dataframe=df_test, directory=TEST_CROPPED_PATH, x_col='img_file', y_col=None, target_size=img_size,
-    color_mode='rgb', class_mode=None, batch_size=batch_size, shuffle=False
-)
-
-
-def get_steps(num_samples, batch_size):
-    return num_samples // batch_size + int(num_samples % batch_size > 0)
-
-
-probs = []
+weights, probs = 0, 0
 num_models = 2
-for i in range(num_models):
+its = np.arange(df_train.shape[0])
+classes = list(sorted([str(i+1) for i in range(df_class.shape[0])]))
+kf = KFold(n_splits=5, shuffle=True)
+
+final_metrics = []
+for train_idx, val_idx in kf.split(its):
+    if num_models == 0:
+        break
+    num_models -= 1
+
+    X_train = df_train.iloc[train_idx, :].reset_index(drop=True)
+    X_val = df_train.iloc[val_idx, :].reset_index(drop=True)
+
+    nb_train_samples = len(X_train)
+    nb_validation_samples = len(X_val)
+    nb_test_samples = len(df_test)
+
+    train_generator = train_datagen.flow_from_dataframe(
+        dataframe=X_train, directory=TRAIN_CROPPED_PATH, x_col='img_file', y_col='class', target_size=img_size,
+        classes=classes, class_mode='categorical', batch_size=batch_size
+    )
+    validation_generator = val_datagen.flow_from_dataframe(
+        dataframe=X_val, directory=TRAIN_CROPPED_PATH, x_col='img_file', y_col='class', target_size=img_size,
+        classes=classes, class_mode='categorical', batch_size=batch_size, shuffle=False
+    )
+    test_generator = test_datagen.flow_from_dataframe(
+        dataframe=df_test, directory=TEST_CROPPED_PATH, x_col='img_file', y_col=None, target_size=img_size,
+        class_mode=None, batch_size=batch_size, shuffle=False
+    )
+
     base_model = MobileNetV2(include_top=False)
-    output = layers.concatenate([
-        layers.GlobalAveragePooling2D()(base_model.output),
-        layers.GlobalMaxPooling2D()(base_model.output)
-    ])
+    output = layers.GlobalAveragePooling2D()(base_model.output)
     output = layers.Dense(512, activation='relu')(output)
     output = layers.Dropout(0.5)(output)
     output = layers.Dense(196, activation='softmax')(output)
     model = models.Model(inputs=base_model.input, outputs=output)
 
-    # filepath = "my_resnet_model_{val_acc:.2f}_{val_loss:.4f}.h5"
-    # ckpt = callbacks.ModelCheckpoint(filepath, monitor='val_acc', verbose=1, save_best_only=True)
     lr = 0.0001
     model.compile(optimizer=optimizers.Adam(lr), loss='categorical_crossentropy', metrics=['acc'])
     es = callbacks.EarlyStopping(patience=3, mode='min', verbose=1)
@@ -128,38 +124,30 @@ for i in range(num_models):
         epochs=epochs, verbose=1, callbacks=[es, rp]
     )
 
-    test_generator.reset()
-    probs.append(model.predict_generator(generator=test_generator,
-                                         steps=get_steps(nb_test_samples, batch_size), verbose=1))
+    w = 0.5 ** len(history2.history['val_acc'])
+    for acc in history2.history['val_acc']:
+        w *= 2
+        weights += acc * w
+        probs += acc * w * model.predict_generator(generator=test_generator,
+                                                   steps=get_steps(nb_test_samples, batch_size), verbose=1)
+    final_metrics.append((history2.history['loss'][-1], history2.history['acc'][-1],
+                          history2.history['val_loss'][-1], history2.history['val_acc'][-1]))
 
-    its = np.arange(X_train.shape[0])
-    buf = val_idx
-    train_idx, val_idx = train_test_split(its, train_size=X_train.shape[0]-X_val.shape[0], random_state=rand_seed)
-    train_idx = np.concatenate([train_idx, buf])
-    X_train = df_train.iloc[train_idx, :].reset_index(drop=True)
-    X_val = df_train.iloc[val_idx, :].reset_index(drop=True)
-    train_generator = train_datagen.flow_from_dataframe(
-        dataframe=X_train, directory=TRAIN_CROPPED_PATH, x_col='img_file', y_col='class', target_size=img_size,
-        color_mode='rgb', class_mode='categorical', batch_size=batch_size, seed=rand_seed
-    )
-    validation_generator = val_datagen.flow_from_dataframe(
-        dataframe=X_val, directory=TRAIN_CROPPED_PATH, x_col='img_file', y_col='class', target_size=img_size,
-        color_mode='rgb', class_mode='categorical', batch_size=batch_size, shuffle=False
-    )
+for i in range(len(final_metrics)):
+    t = final_metrics[i]
+    print('Fold ' + str(i))
+    print('Loss: %.4f, Acc: %.4f for Training' % (t[0], t[1]))
+    print('Loss: %.4f, Acc: %.4f for Validation' % (t[2], t[3]))
 
 csv_probs = pd.read_csv(os.path.join(DATA_PATH, 'sample_submission.csv'))
-probs_sum = 0
-for prob in probs:
-    probs_sum += prob
-probs_mean = probs_sum / len(probs)
+probs_mean = probs / weights
 for i in range(len(df_class)):
     csv_probs["probs" + str(i+1)] = probs_mean[:, i]
-csv_probs.to_csv("probs.csv", index=False)
+csv_probs.to_csv("z_probs.csv", index=False)
 
-indice = np.argmax(probs_mean, axis=1)
-labels = dict((v, k) for k, v in train_generator.class_indices.items())
-preds = [labels[k] for k in indice]
+preds = np.argmax(probs_mean, axis=1)
+preds = np.array([classes[i] for i in preds])
 submission = pd.read_csv(os.path.join(DATA_PATH, 'sample_submission.csv'))
 submission["class"] = preds
-submission.to_csv(os.path.join(DATA_PATH, "submission.csv"), index=False)
+submission.to_csv(os.path.join(OUT_PATH, "submission.csv"), index=False)
 print('done')
