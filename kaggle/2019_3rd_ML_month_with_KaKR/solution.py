@@ -1,26 +1,31 @@
 import os
 import warnings
+import math
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 from PIL import Image
 from tensorflow.python.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.python.keras.applications.mobilenet_v2 import MobileNetV2, preprocess_input
-from tensorflow.python.keras import layers, models, optimizers, callbacks
-from sklearn.model_selection import KFold
+from tensorflow.python.keras.applications.xception import Xception, preprocess_input
+from tensorflow.python.keras import layers, models, optimizers, callbacks, backend, utils
+from sklearn.model_selection import StratifiedKFold
 
 warnings.filterwarnings('ignore')
 
-DATA_PATH = '../../data/2019-3rd-ml-month-with-kakr/'
-OUT_PATH = '../../data/2019-3rd-ml-month-with-kakr/'
+print(os.listdir("../input"))
+
+DATA_PATH = '../../data/2019-3rd-ml-month-with-kakr'
+IMG_PATH = '../../data/2019-3rd-ml-month-with-kakr'
+OUT_PATH = '../../data/2019-3rd-ml-month-with-kakr'
 TRAIN_IMG_PATH = os.path.join(DATA_PATH, 'train')
 TEST_IMG_PATH = os.path.join(DATA_PATH, 'test')
 TRAIN_CROPPED_PATH = os.path.join(DATA_PATH, 'train_cropped')
 TEST_CROPPED_PATH = os.path.join(DATA_PATH, 'test_cropped')
 
-nrows = 128
+nrows = None
 img_size = (299, 299)
-batch_size = 20
-epochs = 2
+batch_size = 32
+epochs = 100
 train_ratio = 0.8
 
 df_train = pd.read_csv(os.path.join(DATA_PATH, 'train.csv'), nrows=nrows)
@@ -32,7 +37,6 @@ def get_steps(num_samples, batch_size):
     return num_samples // batch_size + int(num_samples % batch_size > 0)
 
 
-# img_size에 맞추다 보니 가로세로 비율이 이상해지는데 이게 좋은가 여백을 두는게 좋은가?
 def crop_boxing_img(data, path, path_cropped, margin=16, size=img_size):
     for i, row in data.iterrows():
         img_name = row['img_file']
@@ -45,6 +49,10 @@ def crop_boxing_img(data, path, path_cropped, margin=16, size=img_size):
         y2 = min(pos[3] + margin, height)
         cropped = img.crop((x1, y1, x2, y2)).resize(size)
         cropped.save(os.path.join(path_cropped, img_name))
+
+
+def lr_cos(step, interval, min_lr, max_lr):
+    return (math.cos(step * math.pi / (interval - 1)) + 1) * (max_lr - min_lr) / 2 + min_lr
 
 
 # crop and save
@@ -60,7 +68,8 @@ df_test = df_test[['img_file']]
 
 train_datagen = ImageDataGenerator(
     horizontal_flip=True, vertical_flip=False, zoom_range=0.1, rotation_range=20, fill_mode='nearest',
-    width_shift_range=0.2, height_shift_range=0.2, preprocessing_function=preprocess_input
+    width_shift_range=0.2, height_shift_range=0.2,
+    preprocessing_function=preprocess_input
 )
 val_datagen = ImageDataGenerator(preprocessing_function=preprocess_input)
 test_datagen = ImageDataGenerator(preprocessing_function=preprocess_input)
@@ -69,10 +78,10 @@ weights, probs = 0, 0
 num_models = 2
 its = np.arange(df_train.shape[0])
 classes = list(sorted([str(i+1) for i in range(df_class.shape[0])]))
-kf = KFold(n_splits=5, shuffle=True)
-
+kf = StratifiedKFold(n_splits=5, shuffle=True)
 final_metrics = []
-for train_idx, val_idx in kf.split(its):
+for train_idx, val_idx in kf.split(its, df_train['class']):
+    print('fold' + str(num_models))
     if num_models == 0:
         break
     num_models -= 1
@@ -97,11 +106,10 @@ for train_idx, val_idx in kf.split(its):
         class_mode=None, batch_size=batch_size, shuffle=False
     )
 
-    base_model = MobileNetV2(include_top=False)
-    output = layers.GlobalAveragePooling2D()(base_model.output)
-    output = layers.Dense(512, activation='relu')(output)
+    base_model = Xception(include_top=False, pooling='avg')
+    output = layers.Dense(512, activation='relu')(base_model.output)
     output = layers.Dropout(0.5)(output)
-    output = layers.Dense(196, activation='softmax')(output)
+    output = layers.Dense(len(df_class), activation='softmax')(output)
     model = models.Model(inputs=base_model.input, outputs=output)
 
     lr = 0.0001
@@ -151,3 +159,14 @@ submission = pd.read_csv(os.path.join(DATA_PATH, 'sample_submission.csv'))
 submission["class"] = preds
 submission.to_csv(os.path.join(OUT_PATH, "submission.csv"), index=False)
 print('done')
+
+# from IPython.display import HTML
+# import base64
+# def create_download_link(df, title="Download CSV file", filename="submission.csv"):
+#     csv = df.to_csv()
+#     b64 = base64.b64encode(csv.encode())
+#     payload = b64.decode()
+#     html = '<a download="{filename}" href="data:text/csv;base64,{payload}" target="_blank">{title}</a>'
+#     html = html.format(payload=payload, title=title, filename=filename)
+#     return HTML(html)
+# create_download_link(submission)
