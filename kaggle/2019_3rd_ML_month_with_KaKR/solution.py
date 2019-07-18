@@ -115,7 +115,6 @@ for train_idx, val_idx in kf.split(its, df_train['class']):
     print('Fold: %d, num_train: %d, num_val: %d' % (count, len(train_idx), len(val_idx)))
     if count == num_models:
         break
-    count += 1
 
     X_train = df_train.iloc[train_idx, :].reset_index(drop=True)
     X_val = df_train.iloc[val_idx, :].reset_index(drop=True)
@@ -155,6 +154,7 @@ for train_idx, val_idx in kf.split(its, df_train['class']):
         epochs=epochs, verbose=2, callbacks=[es, rp, ckpt]
     )
 
+    count += 1
     final_metrics.append((history.history['loss'][-1], history.history['acc'][-1],
                           history.history['val_loss'][-1], history.history['val_acc'][-1]))
 
@@ -174,8 +174,8 @@ test_generator_flip = test_datagen_flip.flow_from_dataframe(
 )
 pretrained = [model_name]
 weights, probs = 0, 0
-model = create_model(model_name)
 for prefix in pretrained:
+    model = create_model(prefix)
     for fold in range(num_models):
         cur_list = []
         for file_name in os.listdir(MODEL_PATH):
