@@ -17,6 +17,22 @@
             * Xception
             * Swap optimizer Adam to SGD in the middle of training
             * ReduceLROnPlateau, EarlyStopping
-            * Ensemble models after SGD (weight decay exponentially)
+            * Snapshot ensemble after SGD (weight decay exponentially)
             * Ensemble first 2 models of 5-fold cross validation
             * Score: 0.91368
+    * Ensemble
+        * Model 1
+            * Xception 
+            * Swap optimizer Nadam to SGD in the middle of training
+            * ReduceLROnPlateau, EarlyStopping
+            * Snapshot ensemble after SGD (weight decay exponentially)
+            * Ensemble 5-fold cross validation
+            * Score: 0.94452
+        * Model 2
+            * Xception + DenseNet201
+            * Swap optimizer Nadam to SGD in the middle of training
+            * ReduceLROnPlateau, EarlyStopping
+            * Snapshot ensemble after SGD (weight decay exponentially)
+            * Ensemble 5-fold cross validation
+            * Score: 0.95265
+            
