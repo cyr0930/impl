@@ -17,8 +17,8 @@ OUT_PATH = '../../data/2019-3rd-ml-month-with-kakr'
 MODEL_PATH = OUT_PATH
 TRAIN_IMG_PATH = os.path.join(DATA_PATH, 'train')
 TEST_IMG_PATH = os.path.join(DATA_PATH, 'test')
-TRAIN_CROPPED_PATH = os.path.join(DATA_PATH, 'train_cropped')
-TEST_CROPPED_PATH = os.path.join(DATA_PATH, 'test_cropped')
+TRAIN_CROPPED_PATH = os.path.join(IMG_PATH, 'train_cropped')
+TEST_CROPPED_PATH = os.path.join(IMG_PATH, 'test_cropped')
 
 model_name = 'densenet'
 pretrained_model = None
@@ -146,8 +146,7 @@ for train_idx, val_idx in kf.split(its, df_train['class']):
     model.compile(optimizer=optimizers.SGD(lr, momentum=0.9), loss='categorical_crossentropy', metrics=['acc'])
     es = callbacks.EarlyStopping(patience=1, mode='min', verbose=1)
     rp = callbacks.ReduceLROnPlateau(factor=0.5, patience=0, min_lr=lr / 1000, mode='min', verbose=1)
-    ckpt = callbacks.ModelCheckpoint(os.path.join(MODEL_PATH, '%s_%d_{epoch}_{val_acc}.ckpt' % (model_name, count)),
-                                     save_weights_only=True)
+    ckpt = callbacks.ModelCheckpoint(os.path.join(MODEL_PATH, '%s_%d_{epoch}_{val_acc}.h5' % (model_name, count)))
     history = model.fit_generator(
         train_generator, steps_per_epoch=get_steps(nb_train_samples, batch_size),
         validation_data=validation_generator, validation_steps=get_steps(nb_validation_samples, batch_size),
@@ -175,11 +174,10 @@ test_generator_flip = test_datagen_flip.flow_from_dataframe(
 pretrained = [model_name]
 weights, probs = 0, 0
 for prefix in pretrained:
-    model = create_model(prefix)
     for fold in range(num_models):
         cur_list = []
         for file_name in os.listdir(MODEL_PATH):
-            if file_name.startswith(prefix + '_' + str(fold)) and file_name.endswith('.index'):
+            if file_name.startswith(prefix + '_' + str(fold)):
                 cur_list.append(file_name)
         cur_list.sort()
         w = 0.5 ** len(cur_list)
@@ -190,7 +188,7 @@ for prefix in pretrained:
             w *= 2
             weights += acc * w * 2
             steps = get_steps(len(df_test), batch_size)
-            model.load_weights(file_name[:-6])
+            model = models.load_model(file_name)
             probs += acc * w * model.predict_generator(generator=test_generator, steps=steps, verbose=1)
             probs += acc * w * model.predict_generator(generator=test_generator_flip, steps=steps, verbose=1)
 
