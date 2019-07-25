@@ -49,7 +49,7 @@ def get_steps(num_samples, batch_size):
     return num_samples // batch_size + int(num_samples % batch_size > 0)
 
 
-def crop_boxing_img(data, path, path_cropped, margin=0, size=img_size):
+def crop_boxing_img(data, path, path_cropped, margin=0):
     for i, row in data.iterrows():
         img_name = row['img_file']
         img = Image.open(os.path.join(path, img_name))
@@ -79,9 +79,9 @@ def make_dataset(df, path):
     return x, y
 
 
-def create_model(model_name):
-    base_model = pretrained_model(input_shape=(*img_size, 3), include_top=False, pooling='avg')
-    output = layers.Dense(512, activation='relu')(base_model.output)
+def create_model(pretrained, img_size):
+    base_model = pretrained(input_shape=(*img_size, 3), include_top=False, pooling='avg')
+    output = layers.Dense(2048, activation='relu')(base_model.output)
     output = layers.Dropout(0.5)(output)
     output = layers.Dense(len(df_class), activation='softmax')(output)
     return models.Model(inputs=base_model.input, outputs=output)
@@ -131,10 +131,10 @@ for train_idx, val_idx in kf.split(its, df_train['class']):
         classes=classes, class_mode='categorical', batch_size=batch_size, shuffle=False
     )
 
-    model = create_model(model_name)
+    model = create_model(pretrained_model, img_size)
 
-    lr = 0.0002
-    model.compile(optimizer=optimizers.Nadam(lr), loss='categorical_crossentropy', metrics=['acc'])
+    lr = 0.0003
+    model.compile(optimizer=optimizers.Adam(lr), loss='categorical_crossentropy', metrics=['acc'])
     es = callbacks.EarlyStopping(patience=0, mode='min', verbose=1)
     model.fit_generator(
         train_generator, steps_per_epoch=get_steps(nb_train_samples, batch_size),
