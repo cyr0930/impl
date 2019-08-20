@@ -30,9 +30,12 @@
             * Score: 0.94452
         * Model 2
             * Xception + DenseNet201
-            * Swap optimizer Nadam to SGD in the middle of training
+            * Swap optimizer Adam to SGD in the middle of training
             * ReduceLROnPlateau, EarlyStopping
             * Snapshot ensemble after SGD (weight decay exponentially)
             * Ensemble 5-fold cross validation
-            * Score: 0.95265
+            * Score: 0.95504
+    * Final score
+        * Public: 0.95504 (24th)
+        * Private: 0.94579 (35th)
             

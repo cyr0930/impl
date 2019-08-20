@@ -3,6 +3,7 @@ import warnings
 import math
 import numpy as np
 import pandas as pd
+from zipfile import ZipFile
 from PIL import Image
 from tensorflow.python.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.python.keras.applications import xception, densenet, inception_v3
@@ -16,11 +17,9 @@ IMG_PATH = '../../data/2019-3rd-ml-month-with-kakr'
 OUT_PATH = '../../data/2019-3rd-ml-month-with-kakr'
 MODEL_PATH = OUT_PATH
 TRAIN_IMG_PATH = os.path.join(DATA_PATH, 'train')
-TEST_IMG_PATH = os.path.join(DATA_PATH, 'test')
 TRAIN_CROPPED_PATH = os.path.join(IMG_PATH, 'train_cropped')
-TEST_CROPPED_PATH = os.path.join(IMG_PATH, 'test_cropped')
 
-model_name = 'densenet'
+model_name = 'xception'
 pretrained_model = None
 img_size = None
 preprocess_input = densenet.preprocess_input
@@ -41,7 +40,6 @@ batch_size = 32
 epochs = 100
 
 df_train = pd.read_csv(os.path.join(DATA_PATH, 'train.csv'), nrows=nrows)
-df_test = pd.read_csv(os.path.join(DATA_PATH, 'test.csv'))
 df_class = pd.read_csv(os.path.join(DATA_PATH, 'class.csv'))
 
 
@@ -81,21 +79,18 @@ def make_dataset(df, path):
 
 def create_model(pretrained, img_size):
     base_model = pretrained(input_shape=(*img_size, 3), include_top=False, pooling='avg')
-    output = layers.Dense(2048, activation='relu')(base_model.output)
-    output = layers.Dropout(0.5)(output)
-    output = layers.Dense(len(df_class), activation='softmax')(output)
+    output = layers.Dense(2048, activation='relu', kernel_initializer='he_normal')(base_model.output)
+    output = layers.Dropout(0.2)(output)
+    output = layers.Dense(len(df_class), activation='softmax', kernel_initializer='he_normal')(output)
     return models.Model(inputs=base_model.input, outputs=output)
 
 
 if not os.path.isdir(TRAIN_CROPPED_PATH):
     os.makedirs(TRAIN_CROPPED_PATH)
     crop_boxing_img(df_train, TRAIN_IMG_PATH, TRAIN_CROPPED_PATH)
-    os.makedirs(TEST_CROPPED_PATH)
-    crop_boxing_img(df_test, TEST_IMG_PATH, TEST_CROPPED_PATH)
 
 df_train["class"] = df_train["class"].astype('str')
 df_train = df_train[['img_file', 'class']]
-df_test = df_test[['img_file']]
 
 train_datagen = ImageDataGenerator(
     horizontal_flip=True, vertical_flip=False, zoom_range=0.1, rotation_range=20,
@@ -103,8 +98,6 @@ train_datagen = ImageDataGenerator(
     preprocessing_function=preprocess_input
 )
 val_datagen = ImageDataGenerator(preprocessing_function=preprocess_input)
-test_datagen = ImageDataGenerator(preprocessing_function=preprocess_input)
-test_datagen_flip = ImageDataGenerator(preprocessing_function=lambda x: preprocess_input(np.fliplr(x)))
 
 num_models, count = 5, 0
 its = np.arange(df_train.shape[0])
@@ -133,7 +126,7 @@ for train_idx, val_idx in kf.split(its, df_train['class']):
 
     model = create_model(pretrained_model, img_size)
 
-    lr = 0.0003
+    lr = 0.0002
     model.compile(optimizer=optimizers.Adam(lr), loss='categorical_crossentropy', metrics=['acc'])
     es = callbacks.EarlyStopping(patience=0, mode='min', verbose=1)
     model.fit_generator(
@@ -146,7 +139,8 @@ for train_idx, val_idx in kf.split(its, df_train['class']):
     model.compile(optimizer=optimizers.SGD(lr, momentum=0.9), loss='categorical_crossentropy', metrics=['acc'])
     es = callbacks.EarlyStopping(patience=1, mode='min', verbose=1)
     rp = callbacks.ReduceLROnPlateau(factor=0.5, patience=0, min_lr=lr / 1000, mode='min', verbose=1)
-    ckpt = callbacks.ModelCheckpoint(os.path.join(MODEL_PATH, '%s_%d_{epoch}_{val_acc}.h5' % (model_name, count)))
+    ckpt = callbacks.ModelCheckpoint(os.path.join(MODEL_PATH, '%s_%d_{epoch}_{val_acc}.ckpt' % (model_name, count)),
+                                     save_weights_only=True)
     history = model.fit_generator(
         train_generator, steps_per_epoch=get_steps(nb_train_samples, batch_size),
         validation_data=validation_generator, validation_steps=get_steps(nb_validation_samples, batch_size),
@@ -163,44 +157,10 @@ for i in range(len(final_metrics)):
     print('Loss: %.4f, Acc: %.4f for Training' % (t[0], t[1]))
     print('Loss: %.4f, Acc: %.4f for Validation' % (t[2], t[3]))
 
-test_generator = test_datagen.flow_from_dataframe(
-    dataframe=df_test, directory=TEST_CROPPED_PATH, x_col='img_file', y_col=None, target_size=img_size,
-    class_mode=None, batch_size=batch_size, shuffle=False
-)
-test_generator_flip = test_datagen_flip.flow_from_dataframe(
-    dataframe=df_test, directory=TEST_CROPPED_PATH, x_col='img_file', y_col=None, target_size=img_size,
-    class_mode=None, batch_size=batch_size, shuffle=False
-)
-pretrained = [model_name]
-weights, probs = 0, 0
-for prefix in pretrained:
-    for fold in range(num_models):
-        cur_list = []
-        for file_name in os.listdir(MODEL_PATH):
-            if file_name.startswith(prefix + '_' + str(fold)):
-                cur_list.append(file_name)
-        cur_list.sort()
-        w = 0.5 ** len(cur_list)
-        for file_name in cur_list:
-            test_generator.reset()
-            test_generator_flip.reset()
-            acc = float('0.' + file_name.split('_')[3].split('.')[1])
-            w *= 2
-            weights += acc * w * 2
-            steps = get_steps(len(df_test), batch_size)
-            model = models.load_model(file_name)
-            probs += acc * w * model.predict_generator(generator=test_generator, steps=steps, verbose=1)
-            probs += acc * w * model.predict_generator(generator=test_generator_flip, steps=steps, verbose=1)
-
-csv_probs = pd.read_csv(os.path.join(DATA_PATH, 'sample_submission.csv'))
-probs_mean = probs / weights
-for i in range(len(df_class)):
-    csv_probs["probs" + str(i + 1)] = probs_mean[:, i]
-csv_probs.to_csv(os.path.join(OUT_PATH, "z_probs.csv"), index=False)
-
-preds = np.argmax(probs_mean, axis=1)
-preds = np.array([classes[i] for i in preds])
-submission = pd.read_csv(os.path.join(DATA_PATH, 'sample_submission.csv'))
-submission["class"] = preds
-submission.to_csv(os.path.join(OUT_PATH, "submission.csv"), index=False)
-print('done')
+zip_file_name = os.path.join(OUT_PATH, model_name + '.zip')
+with ZipFile(zip_file_name, 'w') as zip_file:
+    for file_name in os.listdir(OUT_PATH):
+        abs_path = os.path.join(OUT_PATH, file_name)
+        if os.path.isfile(abs_path) and abs_path != zip_file_name:
+            zip_file.write(abs_path)
+            os.remove(abs_path)

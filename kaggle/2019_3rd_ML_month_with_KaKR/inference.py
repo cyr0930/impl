@@ -4,7 +4,7 @@ import pandas as pd
 from PIL import Image
 from tensorflow.python.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.python.keras.applications import xception, densenet
-from tensorflow.python.keras import models
+from tensorflow.python.keras import models, layers
 
 INPUT_PATH = '../../data'
 DATA_PATH = os.path.join(INPUT_PATH, '2019-3rd-ml-month-with-kakr')
@@ -40,6 +40,14 @@ def crop_boxing_img(data, path, path_cropped, margin=0):
         cropped.save(os.path.join(path_cropped, img_name))
 
 
+def create_model(pretrained, img_size):
+    base_model = pretrained(input_shape=(*img_size, 3), include_top=False, pooling='avg')
+    output = layers.Dense(2048, activation='relu', kernel_initializer='he_normal')(base_model.output)
+    output = layers.Dropout(0.5)(output)
+    output = layers.Dense(len(df_class), activation='softmax', kernel_initializer='he_normal')(output)
+    return models.Model(inputs=base_model.input, outputs=output)
+
+
 if not os.path.isdir(TEST_CROPPED_PATH):
     os.makedirs(TEST_CROPPED_PATH)
     crop_boxing_img(df_test, TEST_IMG_PATH, TEST_CROPPED_PATH)
@@ -49,7 +57,7 @@ classes = list(sorted([str(i + 1) for i in range(df_class.shape[0])]))
 
 weights, probs = 0, 0
 for param in pretrained_params:
-    model_name, img_size, preprocess_input = param
+    model_name, img_size, preprocess_input, pretrained_model = param
     test_datagen = ImageDataGenerator(preprocessing_function=preprocess_input)
     test_datagen_flip = ImageDataGenerator(preprocessing_function=lambda x: preprocess_input(np.fliplr(x)))
     test_generator = test_datagen.flow_from_dataframe(
@@ -60,11 +68,12 @@ for param in pretrained_params:
         dataframe=df_test, directory=TEST_CROPPED_PATH, x_col='img_file', y_col=None, target_size=img_size,
         class_mode=None, batch_size=batch_size, shuffle=False
     )
+    model = create_model(pretrained_model, img_size)
     for fold in range(5):
         cur_list = []
-        path = os.path.join(MODEL_PATH, 'car-' + model_name)
+        path = os.path.join(MODEL_PATH, 'car-' + model_name + '/' + model_name)
         for file_name in os.listdir(path):
-            if file_name.startswith(model_name + '_' + str(fold)):
+            if file_name.startswith(model_name + '_' + str(fold)) and file_name.endswith('.index'):
                 cur_list.append(file_name)
         cur_list.sort()
         w = 0.5 ** len(cur_list)
@@ -75,7 +84,7 @@ for param in pretrained_params:
             w *= 2
             weights += acc * w * 2
             steps = get_steps(len(df_test), batch_size)
-            model = models.load_model(os.path.join(path, file_name))
+            model.load_weights(os.path.join(path, file_name[:-6]))
             probs += acc * w * model.predict_generator(generator=test_generator, steps=steps, verbose=1)
             probs += acc * w * model.predict_generator(generator=test_generator_flip, steps=steps, verbose=1)
 
